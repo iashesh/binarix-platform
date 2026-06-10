@@ -1,0 +1,4 @@
+# Project exclude paths
+/agent-core/agent-core-api/target/
+/agent-core/agent-core-impl/target/
+/agent-matrix/rca-agent/target/
