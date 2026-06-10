@@ -103,7 +103,7 @@ Then `mvn spring-boot:run`.
 
 ```bash
 # 1. Create a new module under agent-matrix/
-mkdir -p agent-matrix/my-agent/src/main/java/com/agentplatform/myagent
+mkdir -p agent-matrix/my-agent/src/main/java/com/binarray/binarix/myagent
 
 # 2. Add pom.xml (depend on agent-core-impl)
 # 3. Write @ToolDefinition tools
