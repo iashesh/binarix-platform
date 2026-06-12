@@ -7,8 +7,8 @@ import com.binarray.binarix.core.api.orchestration.AgentPipeline;
 import com.binarray.binarix.core.api.orchestration.OrchestratorStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -28,13 +28,16 @@ import java.util.concurrent.*;
  *
  * @author Ashesh
  */
-@Component
 public class ParallelStrategy implements OrchestratorStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(ParallelStrategy.class);
 
-    /** Virtual-thread executor — zero OS threads blocked, scales to thousands of concurrent agents. */
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final Duration agentTimeout;
+
+    public ParallelStrategy(Duration agentTimeout) {
+        this.agentTimeout = agentTimeout;
+    }
 
     /**
      * {@inheritDoc}
@@ -60,7 +63,8 @@ public class ParallelStrategy implements OrchestratorStrategy {
     @SuppressWarnings("unchecked")
     public AgentContext execute(AgentPipeline pipeline, AgentContext ctx) {
         List<CompletableFuture<AgentContext>> futures = pipeline.nodes().stream()
-                .map(node -> CompletableFuture.supplyAsync(() -> runNode(node, ctx), executor))
+                .map(node -> CompletableFuture.supplyAsync(() -> runNode(node, ctx), executor)
+                        .orTimeout(agentTimeout.toMillis(), TimeUnit.MILLISECONDS))
                 .toList();
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();

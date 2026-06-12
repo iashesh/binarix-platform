@@ -2,6 +2,7 @@ package com.binarray.binarix.rca.tools;
 
 import com.binarray.binarix.core.api.tool.AgentTool;
 import com.binarray.binarix.core.api.tool.ToolDefinition;
+import com.binarray.binarix.core.impl.autoconfigure.AgentCoreProperties;
 import com.binarray.binarix.rca.config.RcaProperties;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import org.springframework.stereotype.Component;
@@ -32,13 +33,18 @@ public class ReadLogFileTool implements AgentTool, Supplier<String> {
     public int maxLines = 1000;
 
     private final RcaProperties props;
+    private final AgentCoreProperties coreProps;
 
     /**
-     * Constructs the tool with the RCA properties for log base path resolution.
+     * Constructs the tool with RCA and core properties for log path resolution and security jailing.
      *
-     * @param props the RCA configuration properties providing the log base path
+     * @param props     the RCA configuration properties providing the log base path
+     * @param coreProps the core configuration providing the security log jail path
      */
-    public ReadLogFileTool(RcaProperties props) { this.props = props; }
+    public ReadLogFileTool(RcaProperties props, AgentCoreProperties coreProps) {
+        this.props = props;
+        this.coreProps = coreProps;
+    }
 
     /**
      * Reads and returns the content of the log file at {@link #filePath}.
@@ -55,8 +61,10 @@ public class ReadLogFileTool implements AgentTool, Supplier<String> {
         if (filePath == null || filePath.isBlank()) return "Error: filePath is required";
         try {
             Path base = Path.of(props.getLog().getBasePath()).toAbsolutePath().normalize();
+            Path securityJail = Path.of(coreProps.getSecurity().getLogBasePath()).toAbsolutePath().normalize();
             Path target = base.resolve(filePath).normalize();
             if (!target.startsWith(base)) return "Security error: path outside base directory";
+            if (!target.startsWith(securityJail)) return "Security error: path outside security boundary";
             if (!Files.exists(target)) return "File not found: " + filePath;
             if (maxLines <= 0) {
                 return Files.readString(target);

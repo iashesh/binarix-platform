@@ -1,5 +1,6 @@
 package com.binarray.binarix.rca.entrypoint;
 
+import com.binarray.binarix.rca.config.RcaProperties;
 import com.binarray.binarix.rca.model.RcaReport;
 import com.binarray.binarix.rca.model.RcaRequest;
 import com.binarray.binarix.rca.orchestration.RcaOrchestratorService;
@@ -31,6 +32,7 @@ public class RcaCliRunner implements CommandLineRunner, ExitCodeGenerator {
     private static final Logger log = LoggerFactory.getLogger(RcaCliRunner.class);
 
     private final RcaOrchestratorService orchestrator;
+    private final RcaProperties rcaProps;
     private int exitCode = 0;
 
     @Value("${rca.cli.log-location:}")
@@ -46,12 +48,14 @@ public class RcaCliRunner implements CommandLineRunner, ExitCodeGenerator {
     private boolean cliEnabled;
 
     /**
-     * Constructs the CLI runner with the RCA orchestrator.
+     * Constructs the CLI runner with the RCA orchestrator and configuration properties.
      *
      * @param orchestrator the domain orchestrator that drives the two-phase RCA pipeline
+     * @param rcaProps     the RCA configuration properties providing the default max log lines
      */
-    public RcaCliRunner(RcaOrchestratorService orchestrator) {
+    public RcaCliRunner(RcaOrchestratorService orchestrator, RcaProperties rcaProps) {
         this.orchestrator = orchestrator;
+        this.rcaProps = rcaProps;
     }
 
     /**
@@ -74,7 +78,8 @@ public class RcaCliRunner implements CommandLineRunner, ExitCodeGenerator {
             log.info("=== RCA Agent Starting (CLI mode) ===");
             log.info("Log: {} | Codebase: {} ({})", cliLogLocation, cliCodebaseLocation, cliCodebaseType);
 
-            RcaRequest request = RcaRequest.of(cliLogLocation, cliCodebaseType, cliCodebaseLocation);
+            RcaRequest request = new RcaRequest(cliLogLocation, cliCodebaseType, cliCodebaseLocation,
+                    rcaProps.getLog().getMaxLines(), "main");
             RcaReport report = orchestrator.analyze(request);
 
             System.out.println("\n" + "=".repeat(80));

@@ -1,6 +1,7 @@
 package com.binarray.binarix.rca.adapter;
 
 import com.binarray.binarix.core.api.adapter.CodebaseAdapter;
+import com.binarray.binarix.core.impl.autoconfigure.AgentCoreProperties;
 import com.binarray.binarix.rca.config.RcaProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,13 +30,18 @@ public class LocalCodebaseAdapter implements CodebaseAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(LocalCodebaseAdapter.class);
     private final RcaProperties props;
+    private final AgentCoreProperties coreProps;
 
     /**
-     * Constructs the adapter with the RCA properties for base path configuration.
+     * Constructs the adapter with the RCA and core properties for base path and security jail configuration.
      *
-     * @param props the RCA configuration properties providing the local base path
+     * @param props     the RCA configuration properties providing the local codebase base path
+     * @param coreProps the core configuration providing the security code jail path
      */
-    public LocalCodebaseAdapter(RcaProperties props) { this.props = props; }
+    public LocalCodebaseAdapter(RcaProperties props, AgentCoreProperties coreProps) {
+        this.props = props;
+        this.coreProps = coreProps;
+    }
 
     /**
      * {@inheritDoc}
@@ -145,9 +151,13 @@ public class LocalCodebaseAdapter implements CodebaseAdapter {
      */
     private Path resolveAndJail(String path) throws IOException {
         Path base = Path.of(props.getCodebase().getLocalBasePath()).toAbsolutePath().normalize();
+        Path securityJail = Path.of(coreProps.getSecurity().getCodeBasePath()).toAbsolutePath().normalize();
         Path resolved = base.resolve(path).normalize();
         if (!resolved.startsWith(base)) {
             throw new SecurityException("Path escape attempt: " + path);
+        }
+        if (!resolved.startsWith(securityJail)) {
+            throw new SecurityException("Path outside security boundary: " + path);
         }
         return resolved;
     }

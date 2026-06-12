@@ -7,7 +7,11 @@ import com.binarray.binarix.core.api.orchestration.AgentPipeline;
 import com.binarray.binarix.core.api.orchestration.OrchestratorStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
+
+import java.time.Duration;
+import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Orchestration strategy that executes pipeline nodes one at a time in declaration order.
@@ -21,10 +25,16 @@ import org.springframework.stereotype.Component;
  *
  * @author Ashesh
  */
-@Component
 public class SequentialStrategy implements OrchestratorStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(SequentialStrategy.class);
+
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final Duration agentTimeout;
+
+    public SequentialStrategy(Duration agentTimeout) {
+        this.agentTimeout = agentTimeout;
+    }
 
     /**
      * {@inheritDoc}
@@ -51,8 +61,11 @@ public class SequentialStrategy implements OrchestratorStrategy {
         AgentContext current = ctx;
         for (AgentNode node : pipeline.nodes()) {
             log.info("[{}] Sequential: executing node '{}'", ctx.correlationId(), node.nodeId());
-            Object result = ((Agent) node.agent())
-                    .execute(node.input(), current);
+            final AgentContext nodeCtx = current;
+            Object result = CompletableFuture.supplyAsync(
+                    () -> ((Agent) node.agent()).execute(node.input(), nodeCtx), executor)
+                    .orTimeout(agentTimeout.toMillis(), TimeUnit.MILLISECONDS)
+                    .join();
             current = current.withFinding(node.agent().getName(), result);
         }
         return current;

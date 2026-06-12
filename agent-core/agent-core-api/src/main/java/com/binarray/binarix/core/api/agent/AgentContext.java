@@ -36,6 +36,10 @@ public record AgentContext(
         RetryContext retryContext
 ) {
     public static AgentContext create(AgentInput input) {
+        return create(input, RetryContext.defaultContext());
+    }
+
+    public static AgentContext create(AgentInput input, RetryContext retryContext) {
         return new AgentContext(
                 UUID.randomUUID().toString(),
                 UUID.randomUUID().toString(),
@@ -43,7 +47,7 @@ public record AgentContext(
                 input,
                 Collections.emptyMap(),
                 100_000,
-                RetryContext.defaultContext()
+                retryContext
         );
     }
 

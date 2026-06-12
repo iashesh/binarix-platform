@@ -49,7 +49,16 @@ binarix-platform/
 export ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 ```
 
-### 2. Build
+### 2. Load Maven modules (IntelliJ IDEA)
+Open the project in IntelliJ IDEA, then reload Maven so IDEA generates the module structure:
+
+**View → Tool Windows → Maven → Reload All Maven Projects** (circular arrow icon)
+
+> IDEA uses external storage for module files (`.iml`, `modules.xml`), so these won't appear
+> in the project tree — Maven is the authoritative source for module structure and dependencies.
+> Committing `.iml` files would create a second source of truth that can drift.
+
+### 3. Build
 ```bash
 mvn clean install -DskipTests
 ```

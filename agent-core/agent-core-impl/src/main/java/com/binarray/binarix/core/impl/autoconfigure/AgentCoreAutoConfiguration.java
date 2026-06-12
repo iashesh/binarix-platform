@@ -123,15 +123,20 @@ public class AgentCoreAutoConfiguration {
      * @return a new {@link ParallelStrategy} instance
      */
     @Bean
-    public ParallelStrategy parallelStrategy() { return new ParallelStrategy(); }
+    public ParallelStrategy parallelStrategy(AgentCoreProperties props) {
+        return new ParallelStrategy(props.getOrchestration().getAgentTimeout());
+    }
 
     /**
      * Registers the {@link SequentialStrategy} bean for ordered agent execution.
      *
+     * @param props the platform configuration providing the per-agent timeout
      * @return a new {@link SequentialStrategy} instance
      */
     @Bean
-    public SequentialStrategy sequentialStrategy() { return new SequentialStrategy(); }
+    public SequentialStrategy sequentialStrategy(AgentCoreProperties props) {
+        return new SequentialStrategy(props.getOrchestration().getAgentTimeout());
+    }
 
     /**
      * Creates the {@link OrchestratorService} that selects and invokes orchestration strategies.

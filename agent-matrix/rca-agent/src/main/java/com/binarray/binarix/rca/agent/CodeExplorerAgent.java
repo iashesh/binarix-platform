@@ -3,6 +3,7 @@ package com.binarray.binarix.rca.agent;
 import com.binarray.binarix.core.api.agent.AgentContext;
 import com.binarray.binarix.core.api.agent.AgentMetadata;
 import com.binarray.binarix.core.impl.agent.AbstractAgent;
+import com.binarray.binarix.core.impl.autoconfigure.AgentCoreProperties;
 import com.binarray.binarix.rca.model.CodeFindings;
 import com.binarray.binarix.rca.model.LogFindings;
 import com.binarray.binarix.rca.model.RcaRequest;
@@ -21,14 +22,20 @@ import org.springframework.stereotype.Service;
 @Service
 public class CodeExplorerAgent extends AbstractAgent<RcaRequest, CodeFindings> {
 
+    private final AgentCoreProperties coreProps;
+
+    public CodeExplorerAgent(AgentCoreProperties coreProps) {
+        this.coreProps = coreProps;
+    }
+
     @Override
     public String getName() { return "code-explorer"; }
 
     @Override
     public AgentMetadata getMetadata() {
         return AgentMetadata.builder()
-                .model("claude-sonnet-4-5")
-                .maxTokens(8192)
+                .model(coreProps.getAnthropic().getDefaultModel())
+                .maxTokens(coreProps.getAnthropic().getDefaultMaxTokens())
                 .systemPrompt(systemPrompt())
                 .build();
     }

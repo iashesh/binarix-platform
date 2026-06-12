@@ -3,9 +3,9 @@ package com.binarray.binarix.rca.orchestration;
 import com.binarray.binarix.core.api.agent.AgentContext;
 import com.binarray.binarix.core.api.orchestration.AgentNode;
 import com.binarray.binarix.core.api.orchestration.AgentPipeline;
+import com.binarray.binarix.core.api.retry.RetryContext;
+import com.binarray.binarix.core.impl.autoconfigure.AgentCoreProperties;
 import com.binarray.binarix.core.impl.orchestration.OrchestratorService;
-import com.binarray.binarix.rca.agent.*;
-import com.binarray.binarix.rca.model.*;
 import com.binarray.binarix.rca.agent.CodeExplorerAgent;
 import com.binarray.binarix.rca.agent.ContextEnricherAgent;
 import com.binarray.binarix.rca.agent.LogAnalystAgent;
@@ -40,6 +40,7 @@ public class RcaOrchestratorService {
     private static final Logger log = LoggerFactory.getLogger(RcaOrchestratorService.class);
 
     private final OrchestratorService coreOrchestrator;
+    private final AgentCoreProperties coreProps;
     private final LogAnalystAgent logAnalyst;
     private final CodeExplorerAgent codeExplorer;
     private final ContextEnricherAgent contextEnricher;
@@ -55,11 +56,13 @@ public class RcaOrchestratorService {
      * @param synthesizer      the {@link RcaSynthesizerAgent} for Phase 2 report synthesis
      */
     public RcaOrchestratorService(OrchestratorService coreOrchestrator,
+                                   AgentCoreProperties coreProps,
                                    LogAnalystAgent logAnalyst,
                                    CodeExplorerAgent codeExplorer,
                                    ContextEnricherAgent contextEnricher,
                                    RcaSynthesizerAgent synthesizer) {
         this.coreOrchestrator = coreOrchestrator;
+        this.coreProps = coreProps;
         this.logAnalyst = logAnalyst;
         this.codeExplorer = codeExplorer;
         this.contextEnricher = contextEnricher;
@@ -80,7 +83,10 @@ public class RcaOrchestratorService {
      */
     public RcaReport analyze(RcaRequest request) {
         log.info("Starting RCA analysis for log: {}", request.logLocation());
-        AgentContext ctx = AgentContext.create(request);
+        RetryContext retryContext = new RetryContext(
+                coreProps.getRetry().getMaxAttempts(),
+                coreProps.getRetry().getBaseDelayMs());
+        AgentContext ctx = AgentContext.create(request, retryContext);
 
         // Phase 1: run all three analyst agents concurrently
         AgentPipeline analysisPhase = AgentPipeline.builder()

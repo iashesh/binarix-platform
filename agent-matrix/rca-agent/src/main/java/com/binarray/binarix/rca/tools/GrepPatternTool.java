@@ -2,6 +2,7 @@ package com.binarray.binarix.rca.tools;
 
 import com.binarray.binarix.core.api.tool.AgentTool;
 import com.binarray.binarix.core.api.tool.ToolDefinition;
+import com.binarray.binarix.core.impl.autoconfigure.AgentCoreProperties;
 import com.binarray.binarix.rca.config.RcaProperties;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import org.springframework.stereotype.Component;
@@ -36,13 +37,18 @@ public class GrepPatternTool implements AgentTool, Supplier<String> {
     public int maxMatches = 100;
 
     private final RcaProperties props;
+    private final AgentCoreProperties coreProps;
 
     /**
-     * Constructs the tool with the RCA properties for log base path resolution.
+     * Constructs the tool with RCA and core properties for log path resolution and security jailing.
      *
-     * @param props the RCA configuration properties providing the log base path
+     * @param props     the RCA configuration properties providing the log base path
+     * @param coreProps the core configuration providing the security log jail path
      */
-    public GrepPatternTool(RcaProperties props) { this.props = props; }
+    public GrepPatternTool(RcaProperties props, AgentCoreProperties coreProps) {
+        this.props = props;
+        this.coreProps = coreProps;
+    }
 
     /**
      * Searches the log file at {@link #filePath} for lines matching {@link #pattern}.
@@ -55,8 +61,10 @@ public class GrepPatternTool implements AgentTool, Supplier<String> {
         if (filePath.isBlank() || pattern.isBlank()) return "Error: filePath and pattern are required";
         try {
             Path base = Path.of(props.getLog().getBasePath()).toAbsolutePath().normalize();
+            Path securityJail = Path.of(coreProps.getSecurity().getLogBasePath()).toAbsolutePath().normalize();
             Path target = base.resolve(filePath).normalize();
             if (!target.startsWith(base)) return "Security error: path outside base directory";
+            if (!target.startsWith(securityJail)) return "Security error: path outside security boundary";
 
             Pattern regex = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
             final int[] lineNum = {0};
