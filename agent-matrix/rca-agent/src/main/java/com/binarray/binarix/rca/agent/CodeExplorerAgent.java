@@ -45,21 +45,27 @@ public class CodeExplorerAgent extends AbstractAgent<RcaRequest, CodeFindings> {
 
     @Override
     protected String buildUserMessage(RcaRequest input, AgentContext ctx) {
-        String logSummary = "";
-        Object logFindings = ctx.findings().get("log-analyst");
-        if (logFindings instanceof LogFindings lf) {
-            logSummary = "\n\nLog analyst found these issues:\n" + lf.rawAnalysis();
+        // Prefer inline error text; fall back to log-analyst findings (only available in
+        // sequential mode — in parallel mode ctx will not yet have log-analyst results).
+        String errorContext;
+        if (input.hasInlineError()) {
+            errorContext = "\n\nError to investigate:\n" + input.logErrorText();
+        } else {
+            Object logFindings = ctx.findings().get("log-analyst");
+            errorContext = (logFindings instanceof LogFindings lf)
+                    ? "\n\nLog analyst found these issues:\n" + lf.rawAnalysis()
+                    : "";
         }
         return String.format(
             "Explore the codebase at: %s (type: %s)%s%n%n" +
             "Your job:%n" +
             "1. Use list_directory to understand the project structure%n" +
-            "2. Use search_codebase to find classes/methods mentioned in the log errors%n" +
+            "2. Use search_codebase to find classes/methods mentioned in the error%n" +
             "3. Use read_file to read the relevant source files%n" +
             "4. Trace the call chain that led to the error%n" +
             "5. Identify the exact lines most likely responsible%n%n" +
             "Return a detailed analysis of the relevant code, the call chain, and suspicious lines.",
-            input.codebaseLocation(), input.codebaseType(), logSummary);
+            input.codebaseLocation(), input.codebaseType(), errorContext);
     }
 
     @Override

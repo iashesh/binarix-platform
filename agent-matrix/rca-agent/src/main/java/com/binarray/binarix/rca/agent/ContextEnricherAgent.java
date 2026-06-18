@@ -44,14 +44,18 @@ public class ContextEnricherAgent extends AbstractAgent<RcaRequest, ContextFindi
 
     @Override
     protected String buildUserMessage(RcaRequest input, AgentContext ctx) {
+        String errorHint = input.hasInlineError()
+                ? "\n\nThe error being investigated — focus your search on commits related to this:\n"
+                  + input.logErrorText()
+                : "";
         return String.format(
-            "Enrich the context for root cause analysis of the application at: %s%n%n" +
+            "Enrich the context for root cause analysis of the application at: %s%s%n%n" +
             "Your job:%n" +
             "1. Use git_log to find recent commits (last 20) that might have introduced the error%n" +
             "2. Look for commits with keywords: fix, bug, refactor, update, change, remove%n" +
             "3. Identify which files were recently changed that might be relevant%n%n" +
             "Return a summary of recent changes that could be related to the observed errors.",
-            input.codebaseLocation());
+            input.codebaseLocation(), errorHint);
     }
 
     @Override

@@ -2,10 +2,12 @@ package com.binarray.binarix.core.impl.anthropic;
 
 import com.binarray.binarix.core.api.agent.AgentContext;
 import com.binarray.binarix.core.api.agent.AgentMetadata;
+import com.binarray.binarix.core.api.event.AgentEvent;
 import com.binarray.binarix.core.api.exception.AgentException;
 import com.binarray.binarix.core.api.retry.RetryPolicy;
 import com.binarray.binarix.core.api.tool.AgentTool;
 import com.binarray.binarix.core.api.tool.ToolDefinition;
+import com.binarray.binarix.core.impl.event.CompositeAgentEventListener;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.*;
@@ -43,27 +45,38 @@ import java.util.stream.Collectors;
 public class AnthropicGateway {
 
     private static final Logger log = LoggerFactory.getLogger(AnthropicGateway.class);
-    private static final int MAX_ITERATIONS = 10;
+    private static final int MAX_ITERATIONS = 100;
 
     private final AnthropicClient client;
     private final RetryPolicy retryPolicy;
+    private final CompositeAgentEventListener eventBus;
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
-     * Constructs the gateway with the Anthropic SDK client and retry policy.
+     * Constructs the gateway with the Anthropic SDK client, retry policy, and event bus.
      *
      * @param client      the configured {@link AnthropicClient} for API calls
      * @param retryPolicy the retry policy applied to every Claude API call
+     * @param eventBus    the composite event listener for firing tool lifecycle events
      */
-    public AnthropicGateway(AnthropicClient client, RetryPolicy retryPolicy) {
+    public AnthropicGateway(AnthropicClient client, RetryPolicy retryPolicy, CompositeAgentEventListener eventBus) {
         this.client = client;
         this.retryPolicy = retryPolicy;
+        this.eventBus = eventBus;
     }
 
     /**
      * Runs the full agentic tool-call loop until Claude stops requesting tools.
+     *
+     * @param meta        agent configuration (model, tokens, system prompt)
+     * @param agentName   name of the calling agent, used in trace logs and events
+     * @param userMessage the user-turn message to send to Claude
+     * @param tools       tools available to Claude for this invocation
+     * @param ctx         the pipeline context carrying correlation ID and findings
+     * @return the final plain-text response from Claude after all tool calls complete
      */
     public String runToolLoop(AgentMetadata meta,
+                              String agentName,
                               String userMessage,
                               List<AgentTool> tools,
                               AgentContext ctx) {
@@ -71,34 +84,59 @@ public class AnthropicGateway {
         Map<String, AgentTool> toolMap = buildToolMap(tools);
         List<ToolUnion> sdkTools = buildSdkTools(tools);
 
+        log.debug("[{}] [{}] LLM request — model={} maxTokens={} tools=[{}]",
+                ctx.correlationId(), agentName, meta.getModel(), meta.getMaxTokens(),
+                toolMap.keySet());
+        log.trace("[{}] [{}] System prompt:\n{}", ctx.correlationId(), agentName, meta.getSystemPrompt());
+        log.trace("[{}] [{}] User message:\n{}", ctx.correlationId(), agentName, userMessage);
+
         MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                 .model(meta.getModel())
-                .maxTokens(meta.getMaxTokens())
-                .addUserMessage(userMessage);
+                .maxTokens(meta.getMaxTokens());
 
+        // Cache the system prompt — same prompt is re-sent on every tool-loop iteration;
+        // marking it ephemeral cuts its cost to ~10% from the second iteration onward.
         if (meta.getSystemPrompt() != null && !meta.getSystemPrompt().isBlank()) {
-            paramsBuilder.system(meta.getSystemPrompt());
+            paramsBuilder.systemOfTextBlockParams(List.of(
+                    TextBlockParam.builder()
+                            .text(meta.getSystemPrompt())
+                            .cacheControl(CacheControlEphemeral.builder().build())
+                            .build()
+            ));
         }
+
+        // Cache the initial user message for the same reason — it is included verbatim
+        // in every subsequent iteration of the tool loop.
+        paramsBuilder.addUserMessageOfBlockParams(List.of(
+                ContentBlockParam.ofText(
+                        TextBlockParam.builder()
+                                .text(userMessage)
+                                .cacheControl(CacheControlEphemeral.builder().build())
+                                .build()
+                )
+        ));
         if (!sdkTools.isEmpty()) {
             paramsBuilder.tools(sdkTools);
         }
 
         return retryPolicy.execute(
-                () -> loop(paramsBuilder, toolMap, ctx),
+                () -> loop(paramsBuilder, agentName, toolMap, ctx),
                 ctx.retryContext()
         );
     }
 
     private String loop(MessageCreateParams.Builder paramsBuilder,
+                        String agentName,
                         Map<String, AgentTool> toolMap,
                         AgentContext ctx) {
 
         for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 
             Message response = client.messages().create(paramsBuilder.build());
-            log.debug("[{}] iteration={} stop_reason={} blocks={}",
-                    ctx.correlationId(), iteration,
-                    response.stopReason(), response.content().size());
+            log.debug("[{}] [{}] iteration={} stop_reason={} blocks={} tokens(in={} out={})",
+                    ctx.correlationId(), agentName, iteration,
+                    response.stopReason(), response.content().size(),
+                    response.usage().inputTokens(), response.usage().outputTokens());
 
             // Collect text using Optional accessor — ContentBlock.text() returns Optional<TextBlock>
             String text = response.content().stream()
@@ -113,6 +151,7 @@ public class AnthropicGateway {
 
             // No tool calls → Claude is done
             if (toolCalls.isEmpty()) {
+                log.trace("[{}] [{}] Final response:\n{}", ctx.correlationId(), agentName, text);
                 return text;
             }
 
@@ -122,13 +161,18 @@ public class AnthropicGateway {
             // Execute each tool and collect results
             List<ContentBlockParam> toolResultParams = new ArrayList<>();
             for (ToolUseBlock tc : toolCalls) {
-                log.debug("[{}] Invoking tool '{}'", ctx.correlationId(), tc.name());
-
                 // _input() returns JsonValue — convert to Map<String, Object> for field injection
                 Map<String, Object> rawInput = tc._input().convert(new TypeReference<Map<String, Object>>() {});
                 Map<String, Object> inputMap = rawInput != null ? rawInput : Collections.emptyMap();
 
+                log.debug("[{}] [{}] Tool call — '{}' inputs={}", ctx.correlationId(), agentName, tc.name(), inputMap);
+                eventBus.onToolCalled(AgentEvent.toolCalled(agentName, ctx.correlationId(), tc.name(), inputMap));
+
                 String result = invokeTool(tc.name(), inputMap, toolMap, ctx);
+
+                log.debug("[{}] [{}] Tool result — '{}' result={}",
+                        ctx.correlationId(), agentName, tc.name(), truncate(result, 500));
+                eventBus.onToolCompleted(AgentEvent.toolCompleted(agentName, ctx.correlationId(), tc.name(), result));
 
                 toolResultParams.add(
                         ContentBlockParam.ofToolResult(
@@ -149,6 +193,11 @@ public class AnthropicGateway {
         }
 
         throw new AgentException("Tool loop exceeded max iterations (" + MAX_ITERATIONS + ")");
+    }
+
+    private static String truncate(String s, int maxLen) {
+        if (s == null) return "(null)";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
     }
 
     // ── Tool invocation ────────────────────────────────────────────────────────

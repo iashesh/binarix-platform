@@ -14,7 +14,13 @@ import com.binarray.binarix.rca.model.RcaReport;
 import com.binarray.binarix.rca.model.RcaRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Domain orchestrator for the RCA Agent pipeline.
@@ -39,12 +45,18 @@ public class RcaOrchestratorService {
 
     private static final Logger log = LoggerFactory.getLogger(RcaOrchestratorService.class);
 
+    /** Cached Phase 1 findings keyed by request fingerprint. */
+    private final ConcurrentHashMap<String, Phase1CacheEntry> phase1Cache = new ConcurrentHashMap<>();
+
     private final OrchestratorService coreOrchestrator;
     private final AgentCoreProperties coreProps;
     private final LogAnalystAgent logAnalyst;
     private final CodeExplorerAgent codeExplorer;
     private final ContextEnricherAgent contextEnricher;
     private final RcaSynthesizerAgent synthesizer;
+
+    @Value("${rca.cache.phase1-ttl-minutes:10}")
+    private int phase1TtlMinutes;
 
     /**
      * Constructs the orchestrator with all required agent dependencies.
@@ -88,19 +100,46 @@ public class RcaOrchestratorService {
                 coreProps.getRetry().getBaseDelayMs());
         AgentContext ctx = AgentContext.create(request, retryContext);
 
-        // Phase 1: run all three analyst agents concurrently
-        AgentPipeline analysisPhase = AgentPipeline.builder()
-                .strategy("parallel")
-                .addNode(AgentNode.of(logAnalyst, request))
-                .addNode(AgentNode.of(codeExplorer, request))
-                .addNode(AgentNode.of(contextEnricher, request))
-                .build();
+        // Phase 1: run analyst agents (or serve from cache)
+        String cacheKey = phase1CacheKey(request);
+        Phase1CacheEntry cached = phase1Cache.get(cacheKey);
+        AgentContext enrichedCtx;
 
-        log.info("[{}] Phase 1: parallel analysis started", ctx.correlationId());
-        AgentContext enrichedCtx = coreOrchestrator.orchestrate(analysisPhase, ctx);
-        log.info("[{}] Phase 1 complete. Findings: {}", ctx.correlationId(), enrichedCtx.findings().keySet());
+        if (cached != null && !cached.isExpired()) {
+            log.info("[{}] Phase 1 cache HIT (key={}) — skipping log/code/context agents",
+                    ctx.correlationId(), cacheKey);
+            // Replay cached findings into a fresh context so Phase 2 sees them
+            AgentContext replayCtx = ctx;
+            for (Map.Entry<String, Object> entry : cached.findings().entrySet()) {
+                replayCtx = replayCtx.withFinding(entry.getKey(), entry.getValue());
+            }
+            enrichedCtx = replayCtx;
+        } else {
+            if (cached != null) {
+                log.info("[{}] Phase 1 cache EXPIRED — re-running analysis", ctx.correlationId());
+                phase1Cache.remove(cacheKey);
+            }
 
-        // Phase 2: synthesize all findings into the final report
+            AgentPipeline analysisPhase = AgentPipeline.builder()
+                    .strategy("parallel")
+                    .addNode(AgentNode.of(logAnalyst, request))
+                    .addNode(AgentNode.of(codeExplorer, request))
+                    .addNode(AgentNode.of(contextEnricher, request))
+                    .build();
+
+            log.info("[{}] Phase 1: parallel analysis started", ctx.correlationId());
+            enrichedCtx = coreOrchestrator.orchestrate(analysisPhase, ctx);
+            log.info("[{}] Phase 1 complete. Findings: {}", ctx.correlationId(), enrichedCtx.findings().keySet());
+
+            phase1Cache.put(cacheKey, new Phase1CacheEntry(
+                    enrichedCtx.findings(),
+                    Instant.now().plus(Duration.ofMinutes(phase1TtlMinutes))
+            ));
+            log.info("[{}] Phase 1 findings cached for {} minutes (key={})",
+                    ctx.correlationId(), phase1TtlMinutes, cacheKey);
+        }
+
+        // Phase 2: synthesize all findings into the final report (always fresh)
         AgentPipeline synthesisPhase = AgentPipeline.builder()
                 .strategy("sequential")
                 .addNode(AgentNode.of(synthesizer, request))
@@ -116,5 +155,18 @@ public class RcaOrchestratorService {
         }
         log.info("[{}] RCA analysis complete", ctx.correlationId());
         return report;
+    }
+
+    private String phase1CacheKey(RcaRequest r) {
+        // When inline error text is provided, logLocation is irrelevant — use a hash of
+        // the error text so different errors against the same codebase get distinct cache entries.
+        String errorKey = r.hasInlineError()
+                ? "inline:" + r.logErrorText().hashCode()
+                : "file:" + r.logLocation();
+        return r.codebaseType() + "|" + r.codebaseLocation() + "|" + r.gitBranch() + "|" + errorKey;
+    }
+
+    private record Phase1CacheEntry(Map<String, Object> findings, Instant expiresAt) {
+        boolean isExpired() { return Instant.now().isAfter(expiresAt); }
     }
 }

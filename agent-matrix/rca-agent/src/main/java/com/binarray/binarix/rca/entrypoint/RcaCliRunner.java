@@ -38,6 +38,9 @@ public class RcaCliRunner implements CommandLineRunner, ExitCodeGenerator {
     @Value("${rca.cli.log-location:}")
     private String  cliLogLocation;
 
+    @Value("${rca.cli.log-error-text:}")
+    private String  cliLogErrorText;
+
     @Value("${rca.cli.codebase-type:local}")
     private String  cliCodebaseType;
 
@@ -70,16 +73,23 @@ public class RcaCliRunner implements CommandLineRunner, ExitCodeGenerator {
      */
     @Override
     public void run(String... args) {
-        if (!cliEnabled || cliLogLocation.isBlank()) {
-            log.info("CLI mode not activated. Use POST /api/v1/analyze, or set rca.cli.enabled=true and rca.cli.log-location");
+        boolean hasInput = !cliLogLocation.isBlank() || !cliLogErrorText.isBlank();
+        if (!cliEnabled || !hasInput) {
+            log.info("CLI mode not activated. Use POST /api/v1/analyze, or set rca.cli.enabled=true " +
+                     "with rca.cli.log-location (file) or rca.cli.log-error-text (inline error)");
             return;
         }
         try {
             log.info("=== RCA Agent Starting (CLI mode) ===");
-            log.info("Log: {} | Codebase: {} ({})", cliLogLocation, cliCodebaseLocation, cliCodebaseType);
+            if (!cliLogErrorText.isBlank()) {
+                log.info("Mode: inline error text | Codebase: {} ({})", cliCodebaseLocation, cliCodebaseType);
+            } else {
+                log.info("Mode: log file {} | Codebase: {} ({})", cliLogLocation, cliCodebaseLocation, cliCodebaseType);
+            }
 
+            String logErrorText = cliLogErrorText.isBlank() ? null : cliLogErrorText;
             RcaRequest request = new RcaRequest(cliLogLocation, cliCodebaseType, cliCodebaseLocation,
-                    rcaProps.getLog().getMaxLines(), "main");
+                    rcaProps.getLog().getMaxLines(), "main", logErrorText);
             RcaReport report = orchestrator.analyze(request);
 
             System.out.println("\n" + "=".repeat(80));

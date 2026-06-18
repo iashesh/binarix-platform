@@ -69,7 +69,73 @@ cd agent-matrix/rca-agent
 mvn spring-boot:run
 ```
 
-Call the API:
+**Endpoint:** `POST http://localhost:8080/api/v1/analyze`
+
+The API supports two modes:
+
+#### Mode A — inline error text (no log file needed)
+
+Supply the error message or stack trace directly in `logErrorText`. The log file is skipped entirely — the agent goes straight to codebase + git analysis.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "logLocation": "",
+    "logErrorText": "Invalid Session. Please login again",
+    "codebaseType": "local",
+    "codebaseLocation": "IDEA/trajor",
+    "maxLogLines": 5000
+  }'
+```
+
+<details>
+<summary>Sample response</summary>
+
+```json
+{
+  "correlationId": "5c6779bb-b92e-47bc-9097-26aed39c74ab",
+  "status": "SUCCESS",
+  "report": {
+    "correlationId": "d4637247-f6e3-4980-8b7c-02096366742e",
+    "rootCauses": [
+      {
+        "description": "JWT token validation failure caught by AuthenticationFilter. The filter catches any JwtException thrown during token parsing (line 48) and returns a generic 'Invalid Session' message to the client. Common causes include expired tokens (1-hour TTL configured), invalid signatures, or malformed tokens.",
+        "confidenceScore": 1.0,
+        "evidence": [
+          "LOG: Invalid Session. Please login again",
+          "AuthenticationFilter.java:65 - response.getWriter().write(\"Invalid Session. Please login again.\")",
+          "AuthenticationFilter.java:63-66 - catch (JwtException jwtException) block",
+          "TokenManager.java:78 - parseSignedClaims(token) throws JwtException"
+        ],
+        "category": "auth",
+        "affectedFile": "trajor-core/src/main/java/com/trajor/config/AuthenticationFilter.java",
+        "affectedLine": 65
+      }
+    ],
+    "executiveSummary": "The application returns 'Invalid Session. Please login again' when JWT token validation fails. The error is caught and handled in AuthenticationFilter.java at line 65, triggered by any JwtException during token parsing (expired, invalid signature, malformed). The logs show only the user-facing error message; the actual JWT exception details are suppressed by the catch block.",
+    "remediationSteps": [
+      "Add debug logging in AuthenticationFilter catch block (line 63-66) to log the actual JwtException type and message before returning generic error",
+      "Review application logs with debug level enabled to identify specific JWT failure reason (expired vs invalid signature vs malformed)",
+      "If tokens are expiring too quickly, adjust jwt.expiration property (currently 3600000ms = 1 hour) in application.properties",
+      "Implement token refresh mechanism if not already present to handle expiration gracefully",
+      "Verify JWT secret key consistency across all application instances if distributed deployment"
+    ],
+    "affectedComponent": "AuthenticationFilter.doFilterInternal() -> TokenManager.extractAllClaims()",
+    "severity": "MEDIUM",
+    "generatedAt": "2026-06-18T20:59:36.014394Z",
+    "rawAnalysis": "..."
+  },
+  "errorMessage": null,
+  "durationMs": 178243
+}
+```
+</details>
+
+#### Mode B — log file on disk
+
+Point `logLocation` at a log file (relative to `rca.log.base-path`). The agent reads the file, extracts errors, then analyses the codebase.
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/analyze \
   -H "Content-Type: application/json" \
@@ -83,15 +149,62 @@ curl -X POST http://localhost:8080/api/v1/analyze \
 ```
 
 ### 4. Run — CLI mode
-In `agent-matrix/rca-agent/src/main/resources/application.properties`:
+
+CLI mode runs a single analysis on startup, prints the report to stdout, and exits (`0` = success, `1` = error). No REST server stays running. Useful for scripts, CI pipelines, or a quick one-shot check.
+
+Two input modes — same as the REST API:
+
+**Inline error text** (no log file needed — paste the error or stack trace directly):
+
+```bash
+cd agent-matrix/rca-agent
+mvn spring-boot:run -Dspring-boot.run.arguments="\
+  --rca.cli.enabled=true \
+  --rca.cli.log-error-text='Invalid Session. Please login again' \
+  --rca.cli.codebase-type=local \
+  --rca.cli.codebase-location=/absolute/path/to/your/project"
+```
+
+**Log file on disk:**
+
+```bash
+cd agent-matrix/rca-agent
+mvn spring-boot:run -Dspring-boot.run.arguments="\
+  --rca.cli.enabled=true \
+  --rca.cli.log-location=/absolute/path/to/app.log \
+  --rca.cli.codebase-type=local \
+  --rca.cli.codebase-location=/absolute/path/to/your/project \
+  --agent.core.security.log-base-path=/absolute/path/to/logs"
+```
+
+Or set them permanently in `application.properties` if you always run in CLI mode:
+
 ```properties
 rca.cli.enabled=true
-rca.cli.log-location=test-data/sample-app.log
+# Pick one of the two input modes:
+rca.cli.log-error-text=Invalid Session. Please login again
+# rca.cli.log-location=/var/log/myapp/app.log
 rca.cli.codebase-type=local
-rca.cli.codebase-location=.
-agent.core.security.log-base-path=.
+rca.cli.codebase-location=/home/user/projects/myapp
+agent.core.security.log-base-path=/var/log/myapp
 ```
-Then `mvn spring-boot:run`.
+
+The report is printed to stdout in a readable format:
+
+```
+================================================================================
+ROOT CAUSE ANALYSIS REPORT
+================================================================================
+Correlation ID : 5c6779bb-b92e-47bc-9097-26aed39c74ab
+Generated At   : 2026-06-18T20:59:36Z
+Severity       : MEDIUM
+Component      : AuthenticationFilter.doFilterInternal()
+================================================================================
+The application returns 'Invalid Session...' when JWT token validation fails...
+================================================================================
+```
+
+> **Note:** `agent.core.security.log-base-path` must be a parent of your log file path — it acts as a security jail preventing the agent from reading files outside that directory.
 
 ---
 

@@ -2,6 +2,7 @@ package com.binarray.binarix.rca.agent;
 
 import com.binarray.binarix.core.api.agent.AgentContext;
 import com.binarray.binarix.core.api.agent.AgentMetadata;
+import com.binarray.binarix.core.api.event.AgentEvent;
 import com.binarray.binarix.core.impl.agent.AbstractAgent;
 import com.binarray.binarix.core.impl.autoconfigure.AgentCoreProperties;
 import com.binarray.binarix.rca.model.LogFindings;
@@ -34,6 +35,23 @@ public class LogAnalystAgent extends AbstractAgent<RcaRequest, LogFindings> {
 
     @Override
     public String getName() { return "log-analyst"; }
+
+    /**
+     * Short-circuits the entire LLM call when the caller has supplied inline error text.
+     * No file is read, no tokens are spent — the provided text is used directly as findings.
+     */
+    @Override
+    public LogFindings execute(RcaRequest input, AgentContext ctx) {
+        if (input.hasInlineError()) {
+            eventBus.onAgentStarted(AgentEvent.started(getName(), ctx.correlationId()));
+            log.info("[{}] Agent '{}' — using inline logErrorText, skipping log file read",
+                    ctx.correlationId(), getName());
+            LogFindings findings = LogFindings.fromRaw(input.logErrorText());
+            eventBus.onAgentCompleted(AgentEvent.completed(getName(), ctx.correlationId(), findings));
+            return findings;
+        }
+        return super.execute(input, ctx);
+    }
 
     @Override
     public AgentMetadata getMetadata() {

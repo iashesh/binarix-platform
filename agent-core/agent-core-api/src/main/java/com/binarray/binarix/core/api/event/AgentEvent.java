@@ -45,10 +45,24 @@ public record AgentEvent(
      * @param agentName     the name of the agent invoking the tool
      * @param correlationId the pipeline run correlation ID
      * @param toolName      the name of the tool being called
+     * @param inputs        the input parameters Claude passed to the tool
      * @return a new {@code AgentEvent} of type {@code TOOL_CALLED}
      */
-    public static AgentEvent toolCalled(String agentName, String correlationId, String toolName) {
-        return new AgentEvent(AgentEventType.TOOL_CALLED, agentName, correlationId, toolName, null, Instant.now());
+    public static AgentEvent toolCalled(String agentName, String correlationId, String toolName, Object inputs) {
+        return new AgentEvent(AgentEventType.TOOL_CALLED, agentName, correlationId, toolName, inputs, Instant.now());
+    }
+
+    /**
+     * Creates an {@link AgentEventType#TOOL_COMPLETED} event.
+     *
+     * @param agentName     the name of the agent that invoked the tool
+     * @param correlationId the pipeline run correlation ID
+     * @param toolName      the name of the tool that completed
+     * @param result        the result string returned by the tool
+     * @return a new {@code AgentEvent} of type {@code TOOL_COMPLETED}
+     */
+    public static AgentEvent toolCompleted(String agentName, String correlationId, String toolName, String result) {
+        return new AgentEvent(AgentEventType.TOOL_COMPLETED, agentName, correlationId, toolName, result, Instant.now());
     }
 
     /**

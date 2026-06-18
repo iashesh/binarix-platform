@@ -58,25 +58,28 @@ public class CompositeAgentEventListener implements AgentEventListener {
 
     /**
      * {@inheritDoc}
-     * <p>Logs at {@code DEBUG} level and delegates to all registered listeners.</p>
+     * <p>Logs at {@code INFO} level with tool inputs and delegates to all registered listeners.</p>
      *
-     * @param e the event carrying the agent name, tool name, and correlation ID
+     * @param e the event carrying the agent name, tool name, inputs, and correlation ID
      */
     @Override
     public void onToolCalled(AgentEvent e) {
-        log.debug("[{}] Agent '{}' calling tool '{}'", e.correlationId(), e.agentName(), e.toolName());
+        log.info("[{}] Agent '{}' → tool '{}' inputs={}", e.correlationId(), e.agentName(), e.toolName(), e.payload());
         delegates.forEach(d -> d.onToolCalled(e));
     }
 
     /**
      * {@inheritDoc}
-     * <p>Logs at {@code DEBUG} level and delegates to all registered listeners.</p>
+     * <p>Logs at {@code INFO} level with a result preview and delegates to all registered listeners.</p>
      *
-     * @param e the event carrying the tool name and correlation ID
+     * @param e the event carrying the tool name, result payload, and correlation ID
      */
     @Override
     public void onToolCompleted(AgentEvent e) {
-        log.debug("[{}] Tool '{}' completed", e.correlationId(), e.toolName());
+        String preview = e.payload() instanceof String s
+                ? (s.length() > 300 ? s.substring(0, 300) + "…" : s)
+                : String.valueOf(e.payload());
+        log.info("[{}] Tool '{}' result={}", e.correlationId(), e.toolName(), preview);
         delegates.forEach(d -> d.onToolCompleted(e));
     }
 

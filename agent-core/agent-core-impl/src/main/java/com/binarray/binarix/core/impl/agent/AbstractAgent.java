@@ -79,7 +79,9 @@ public abstract class AbstractAgent<I extends AgentInput, O extends AgentOutput>
             AgentMetadata meta = getMetadata();
             log.info("[{}] Agent '{}' invoking Claude with {} tool(s)",
                     ctx.correlationId(), getName(), tools.size());
-            String rawResponse = gateway.runToolLoop(meta, userMessage, tools, ctx);
+            log.trace("[{}] [{}] Built user message:\n{}", ctx.correlationId(), getName(), userMessage);
+            String rawResponse = gateway.runToolLoop(meta, getName(), userMessage, tools, ctx);
+            log.trace("[{}] [{}] Raw response:\n{}", ctx.correlationId(), getName(), rawResponse);
             O result = parseResponse(rawResponse, ctx);
             eventBus.onAgentCompleted(AgentEvent.completed(getName(), ctx.correlationId(), result));
             return result;

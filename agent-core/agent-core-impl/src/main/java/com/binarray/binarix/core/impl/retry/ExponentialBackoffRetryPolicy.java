@@ -60,7 +60,7 @@ public class ExponentialBackoffRetryPolicy implements RetryPolicy {
                 lastEx = e;
                 if (attempt < maxAttempts) {
                     long delay = baseDelay * (long) Math.pow(2, attempt - 1);
-                    log.warn("Attempt {}/{} failed, retrying in {}ms: {}", attempt, maxAttempts, delay, e.getMessage());
+                    log.error("Attempt {}/{} failed, retrying in {}ms: {}", attempt, maxAttempts, delay, e.getMessage());
                     try { Thread.sleep(delay); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 }
             }

@@ -74,12 +74,14 @@ public class AgentCoreAutoConfiguration {
      *
      * @param client      the Anthropic API client
      * @param retryPolicy the retry policy for transient API failures
+     * @param eventBus    the composite event listener for tool lifecycle events
      * @return a configured {@link AnthropicGateway} instance
      */
     @Bean
     @ConditionalOnMissingBean
-    public AnthropicGateway anthropicGateway(AnthropicClient client, RetryPolicy retryPolicy) {
-        return new AnthropicGateway(client, retryPolicy);
+    public AnthropicGateway anthropicGateway(AnthropicClient client, RetryPolicy retryPolicy,
+                                              CompositeAgentEventListener eventBus) {
+        return new AnthropicGateway(client, retryPolicy, eventBus);
     }
 
     /**
